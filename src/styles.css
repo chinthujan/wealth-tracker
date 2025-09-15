@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App global styles */
+:root {
+  --radius: 16px;
+}
+
+.card {
+  @apply rounded-2xl border bg-white/70 dark:bg-white/5 dark:border-white/10 backdrop-blur p-4 shadow-soft;
+}
+.btn {
+  @apply inline-flex items-center gap-2 rounded-xl px-4 py-2 font-medium transition active:scale-[.99];
+}
+.btn-primary { @apply bg-neutral-900 text-white hover:bg-black dark:bg-white dark:text-black dark:hover:bg-white/90; }
+.btn-green { @apply bg-brand-600 text-white hover:bg-brand-700; }
+.input {
+  @apply rounded-xl border px-3 py-2 outline-none focus:ring-2 focus:ring-brand-600/30 dark:bg-white/5 dark:border-white/10;
+}
+.label { @apply block text-xs text-neutral-500 dark:text-neutral-400 mb-1; }
+.kbd { @apply px-1.5 py-0.5 rounded border text-xs; }
+
+/* polish */
+html, body { min-height: 100%; }
+.card { transition: box-shadow .2s, transform .02s; }
+.card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+
+/* premium polish */
+.card { backdrop-filter: saturate(140%) blur(6px); }
+.btn { box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,.08); }
