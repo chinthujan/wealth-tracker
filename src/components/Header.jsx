@@ -10,6 +10,7 @@ export default function Header({ tab, setTab }) {
   const [qaOpen, setQaOpen] = React.useState(false)
   React.useEffect(() => { const fn = () => setQaOpen(true); window.addEventListener('open-quick-add', fn); return () => window.removeEventListener('open-quick-add', fn) }, [])
   return (
+    <>
     <header className="sticky top-0 z-10 backdrop-blur bg-white/70 dark:bg-black/40 border-b border-neutral-200/80 dark:border-white/10">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -30,5 +31,6 @@ export default function Header({ tab, setTab }) {
       </div>
     </header>
       <QuickAdd open={qaOpen} onClose={()=>setQaOpen(false)}/>
+        </>
   )
 }
