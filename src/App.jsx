@@ -7,7 +7,7 @@ import Investments from './components/Investments'
 import NetWorth from './components/NetWorth'
 import Assets from './components/Assets'
 import Settings from './components/Settings'
-import { Provider, useStore } from './state/store'
+import { Provider, useStore } from './state/store.jsx'
 import { currency } from './lib/utils'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts'
 
