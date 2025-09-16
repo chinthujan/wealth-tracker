@@ -126,11 +126,15 @@ export default function Investments() {
   const [fetchNote, setFetchNote] = useState('')
 
   const add = (e) => {
-    e?.preventDefault?.()
-    const s = symbol.trim().toUpperCase()
-    const u = parseNum(units)
-    const p = price === '' ? undefined : parseNum(price)
-    if (!s || u <= 0) return
+  if (e && typeof e.preventDefault === 'function') e.preventDefault()
+  const s = symbol.trim().toUpperCase()
+  const u = parseNum(units)
+  const p = price === '' ? undefined : parseNum(price)
+  if (!s || !isFinite(u) || u <= 0) {
+    alert('Enter a symbol and a positive number of units.')
+    return
+  }
+  try {
     setData(prev => ({
       ...prev,
       investments: [
@@ -138,8 +142,14 @@ export default function Investments() {
         { id: Math.random().toString(36).slice(2) + Date.now().toString(36), symbol: s, units: u, price: p }
       ]
     }))
-    setSymbol(''); setUnits(''); setPrice('')
+  } catch (err) {
+    console.error('Failed to add holding', err)
+    alert('Could not save this holding. Try reducing the number of items or clearing local data in Settings → Backup.')
+    return
   }
+  setSymbol(''); setUnits(''); setPrice('')
+}
+
 
   const remove = (id) => {
     setData(prev => ({
@@ -265,9 +275,9 @@ export default function Investments() {
               <input className="input w-full" type="number" step="0.01" min="0" value={price} onChange={e=>setPrice(e.target.value)} placeholder="0.00" />
             </div>
             <div className="sm:col-span-3">
-              <button className="btn btn-primary"><Plus className="w-4 h-4" /> Add Holding</button>
-            </div>
-          </form>
+    <button type="submit" className="btn btn-primary"><Plus className="w-4 h-4" /> Add Holding</button>
+  </div>
+</form>
 
           {/* Holdings table */}
           <div className="card overflow-x-auto">

@@ -6,6 +6,7 @@ import Investments from './components/Investments'
 import Assets from './components/Assets'
 import NetWorth from './components/NetWorth'
 import Settings from './components/Settings'
+import ErrorBoundary from './components/ErrorBoundary'
 import { Provider, useStore } from './state/store'
 import { currency } from './lib/utils'
 import * as Recurrence from './lib/recurrence.js'
@@ -171,7 +172,9 @@ function Overview() {
 export default function App() {
   return (
     <Provider>
-      <Shell />
+      <ErrorBoundary>
+        <Shell />
+      </ErrorBoundary>
     </Provider>
   )
 }
