@@ -3,7 +3,7 @@ import { useStore } from '../state/store'
 import { currency, parseNum } from '../lib/utils'
 import { Target, Plus, Trash2, Info } from 'lucide-react'
 
-/* --------- provider helpers (dividends + currency + price) --------- */
+/* --- provider helpers (dividends + currency + price) --- */
 function deepPick(obj, keys) {
   for (const k of keys) {
     const parts = k.split('.'); let cur = obj
@@ -69,57 +69,45 @@ async function fetchSummary_YR(symbol, apiKey, host) {
   return {}
 }
 
-/* --------- math (whole shares) --------- */
+/* --- math (whole shares) --- */
 const PERIODS = [
-  { key: 'month', label: 'Per Month', gy: 12 },
-  { key: 'quarter', label: 'Per Quarter', gy: 4 },
-  { key: 'year', label: 'Per Year', gy: 1 },
+  { key: 'month',   label: 'Per Month',   gy: 12 },
+  { key: 'quarter', label: 'Per Quarter', gy: 4  },
+  { key: 'year',    label: 'Per Year',    gy: 1  },
 ]
 const gy = (period) => (PERIODS.find(p => p.key === period)?.gy ?? 12)
 const monthlyIncome = (shares, dpsAnnual) => (Number(shares) * Number(dpsAnnual || 0)) / 12
 
 function requiredSharesWhole({ goalType, targetValue, goalPeriod, price, dpsAnnual }) {
-  const P = Math.max(0, Number(price || 0))
+  const P   = Math.max(0, Number(price || 0))
   const dps = Math.max(0, Number(dpsAnnual || 0))
-  const Gy = gy(goalPeriod)
+  const Gy  = gy(goalPeriod)
   if (!Number.isFinite(targetValue) || targetValue <= 0) return 0
   if (goalType === 'shares') {
     if (P <= 0 || dps <= 0 || Gy <= 0) return 0
-    const raw = (targetValue * P * Gy) / dps
-    return Math.ceil(raw || 0)
+    return Math.ceil(((targetValue * P * Gy) / dps) || 0)
   } else {
     if (dps <= 0 || Gy <= 0) return 0
-    const raw = (targetValue * Gy) / dps
-    return Math.ceil(raw || 0)
+    return Math.ceil(((targetValue * Gy) / dps) || 0)
   }
 }
 
-/* --------- presentation row --------- */
+/* --- row --- */
 function GoalRow({ g, onDelete, holdings }) {
   const currentShares = (holdings || [])
     .filter(h => (h.symbol || '').toUpperCase() === (g.symbol || '').toUpperCase())
     .reduce((a, h) => a + Number(h.units || 0), 0)
 
-  const live = (holdings || []).find(h => (h.symbol || '').toUpperCase() === (g.symbol || '').toUpperCase())
+  const live  = (holdings || []).find(h => (h.symbol || '').toUpperCase() === (g.symbol || '').toUpperCase())
   const price = Number(live?.price || 0)
-  const ccy = live?.ccy || 'USD'
+  const ccy   = live?.ccy || 'USD'
 
-  const reqWhole = requiredSharesWhole({
-    goalType: g.goalType,
-    targetValue: g.targetValue,
-    goalPeriod: g.goalPeriod,
-    price,
-    dpsAnnual: g.dpsAnnual,
-  })
-  const sharesToAdd = Math.max(0, reqWhole - currentShares)
-  const dollarsNeeded = sharesToAdd * price
-
-  const monthlyTarget = g.goalType === 'shares'
-    ? (g.targetValue * price * (gy(g.goalPeriod) / 12))
-    : (g.targetValue * (gy(g.goalPeriod) / 12))
-
-  const currentMonthlyDiv = monthlyIncome(currentShares, g.dpsAnnual)
-  const progress = monthlyTarget > 0 ? Math.min(1, currentMonthlyDiv / monthlyTarget) : 0
+  const reqWhole       = requiredSharesWhole({ goalType: g.goalType, targetValue: g.targetValue, goalPeriod: g.goalPeriod, price, dpsAnnual: g.dpsAnnual })
+  const sharesToAdd    = Math.max(0, reqWhole - currentShares)
+  const dollarsNeeded  = sharesToAdd * price
+  const monthlyTarget  = g.goalType === 'shares' ? (g.targetValue * price * (gy(g.goalPeriod) / 12)) : (g.targetValue * (gy(g.goalPeriod) / 12))
+  const currentMonthly = monthlyIncome(currentShares, g.dpsAnnual)
+  const progress       = monthlyTarget > 0 ? Math.min(1, currentMonthly / monthlyTarget) : 0
 
   return (
     <div className="rounded-xl border dark:border-white/10 p-4 flex flex-col gap-3">
@@ -137,35 +125,16 @@ function GoalRow({ g, onDelete, holdings }) {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
-        <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Current shares</div>
-          <div className="font-medium">{currentShares.toLocaleString()}</div>
-        </div>
-        <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Price</div>
-          <div className="font-medium">{price > 0 ? `${currency(price)} ${ccy}` : '—'}</div>
-        </div>
-        <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Dividend / share (annual)</div>
-          <div className="font-medium">{currency(g.dpsAnnual)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Shares required</div>
-          <div className="font-medium">{reqWhole.toLocaleString()}</div>
-        </div>
-        <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Shares to add</div>
-          <div className="font-medium">{sharesToAdd.toLocaleString()}</div>
-        </div>
-        <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Capital needed</div>
-          <div className="font-medium">{price > 0 ? `${currency(dollarsNeeded)} ${ccy}` : '—'}</div>
-        </div>
+        <div><div className="text-xs text-neutral-500 dark:text-neutral-400">Current shares</div><div className="font-medium">{currentShares.toLocaleString()}</div></div>
+        <div><div className="text-xs text-neutral-500 dark:text-neutral-400">Price</div><div className="font-medium">{price > 0 ? `${currency(price)} ${ccy}` : '—'}</div></div>
+        <div><div className="text-xs text-neutral-500 dark:text-neutral-400">Dividend / share (annual)</div><div className="font-medium">{currency(g.dpsAnnual)}</div></div>
+        <div><div className="text-xs text-neutral-500 dark:text-neutral-400">Shares required</div><div className="font-medium">{reqWhole.toLocaleString()}</div></div>
+        <div><div className="text-xs text-neutral-500 dark:text-neutral-400">Shares to add</div><div className="font-medium">{sharesToAdd.toLocaleString()}</div></div>
+        <div><div className="text-xs text-neutral-500 dark:text-neutral-400">Capital needed</div><div className="font-medium">{price > 0 ? `${currency(dollarsNeeded)} ${ccy}` : '—'}</div></div>
       </div>
 
       <div className="flex items-center justify-between text-xs text-neutral-500">
-        <span>Progress</span>
-        <span>{Math.round(progress * 100)}%</span>
+        <span>Progress</span><span>{Math.round(progress * 100)}%</span>
       </div>
       <div className="mt-1 h-3 w-full rounded-full bg-neutral-100 dark:bg-white/10 overflow-hidden ring-1 ring-neutral-200/80 dark:ring-white/10">
         <div className="h-full bg-brand-600" style={{ width: `${Math.round(progress * 100)}%` }} />
@@ -173,7 +142,7 @@ function GoalRow({ g, onDelete, holdings }) {
 
       <div className="mt-2 text-sm">
         <span className="text-neutral-500 dark:text-neutral-400">Current monthly dividend: </span>
-        <span className="font-medium">{currency(currentMonthlyDiv)} {ccy}</span>
+        <span className="font-medium">{currency(currentMonthly)} {ccy}</span>
       </div>
 
       <div className="text-xs text-neutral-600 dark:text-neutral-300 flex items-center gap-2">
@@ -183,49 +152,44 @@ function GoalRow({ g, onDelete, holdings }) {
   )
 }
 
-/* --------- main planner (equal spacing + fixed $ + aligned label) --------- */
+/* --- main planner (single-line inputs, equal spacing, smaller final input) --- */
 export default function DividendPlanner() {
   const { data, setData } = useStore()
   const holdings = data?.investments || []
-  const goals = data?.dividendGoals || []
+  const goals    = data?.dividendGoals || []
 
   const provider = data?.settings?.marketData?.provider || 'AlphaVantage'
   const apiKey   = data?.settings?.marketData?.apiKey || ''
   const host     = data?.settings?.marketData?.host || ''
 
-  const [symbol, setSymbol] = useState('')
-  const [goalType, setGoalType] = useState('shares')
-  const [targetValue, setTargetValue] = useState('1')
+  const [symbol, setSymbol]         = useState('')
+  const [goalType, setGoalType]     = useState('shares')
+  const [targetValue, setTargetValue]= useState('1')
   const [goalPeriod, setGoalPeriod] = useState('month')
-  const [dpsAnnual, setDpsAnnual] = useState('')
+  const [dpsAnnual, setDpsAnnual]   = useState('')
 
-  // local ref data
-  const [refPrice, setRefPrice] = useState(undefined)
-  const [refCcy, setRefCcy] = useState('USD')
+  const [refPrice, setRefPrice]     = useState(undefined)
+  const [refCcy, setRefCcy]         = useState('USD')
 
   const v_symbol = symbol.trim().toUpperCase()
   const v_target = parseNum(targetValue)
-  const v_dps = parseNum(dpsAnnual)
+  const v_dps    = parseNum(dpsAnnual)
 
-  // Autofill when symbol changes
+  // Autofill DPS & price on symbol change
   useEffect(() => {
     if (!v_symbol) return
     const h = holdings.find(h => (h.symbol || '').toUpperCase() === v_symbol)
     if (h) {
       if (h.dpsAnnual) setDpsAnnual(String(h.dpsAnnual))
-      if (h.price) setRefPrice(h.price)
-      setRefCcy(h.ccy || 'USD')
-      return
+      if (h.price)     setRefPrice(h.price)
+      setRefCcy(h.ccy || 'USD'); return
     }
     ;(async () => {
       try {
         if (provider === 'AlphaVantage') {
           if (!apiKey) return
           const [ov, px] = await Promise.allSettled([fetchOverview_AV(v_symbol, apiKey), fetchPrice_AV(v_symbol, apiKey)])
-          if (ov.status === 'fulfilled') {
-            if (ov.value?.dpsAnnual) setDpsAnnual(String(ov.value.dpsAnnual))
-            if (ov.value?.currency) setRefCcy(ov.value.currency)
-          }
+          if (ov.status === 'fulfilled') { if (ov.value?.dpsAnnual) setDpsAnnual(String(ov.value.dpsAnnual)); if (ov.value?.currency) setRefCcy(ov.value.currency) }
           if (px.status === 'fulfilled' && px.value) setRefPrice(px.value)
         } else if (provider === 'Finnhub') {
           if (!apiKey) return
@@ -237,8 +201,8 @@ export default function DividendPlanner() {
           if (!apiKey || !host) return
           const sm = await fetchSummary_YR(v_symbol, apiKey, host)
           if (sm?.dpsAnnual) setDpsAnnual(String(sm.dpsAnnual))
-          if (sm?.price) setRefPrice(sm.price)
-          if (sm?.currency) setRefCcy(sm.currency)
+          if (sm?.price)     setRefPrice(sm.price)
+          if (sm?.currency)  setRefCcy(sm.currency)
         }
       } catch {}
     })()
@@ -252,19 +216,14 @@ export default function DividendPlanner() {
     if (!canSubmit) return
     const newGoal = {
       id: Math.random().toString(36).slice(2) + Date.now().toString(36),
-      symbol: v_symbol,
-      goalType,
-      targetValue: v_target,
-      goalPeriod,
-      dpsAnnual: v_dps,
-      createdAt: new Date().toISOString()
+      symbol: v_symbol, goalType, targetValue: v_target,
+      goalPeriod, dpsAnnual: v_dps, createdAt: new Date().toISOString()
     }
     setData(prev => ({ ...prev, dividendGoals: [...(prev.dividendGoals || []), newGoal] }))
     setTargetValue(goalType === 'shares' ? '1' : '')
   }
 
-  const removeGoal = (id) =>
-    setData(prev => ({ ...prev, dividendGoals: (prev.dividendGoals || []).filter(g => g.id !== id) }))
+  const removeGoal = (id) => setData(prev => ({ ...prev, dividendGoals: (prev.dividendGoals || []).filter(g => g.id !== id) }))
 
   const sortedGoals = useMemo(() => {
     return (goals || []).slice().sort((a, b) => {
@@ -283,9 +242,9 @@ export default function DividendPlanner() {
         </p>
       </div>
 
-      {/* FORM — equal spacing; smaller Symbol; fixed $ overlay; aligned label */}
+      {/* Single line on lg+: 2 / 6 / 3 / 1 (button). Smaller last input; aligned labels; $ not overlapped */}
       <form onSubmit={addGoal} className="card grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
-        {/* Symbol (smaller) */}
+        {/* Symbol */}
         <div className="lg:col-span-2">
           <label className="label">Symbol</label>
           <input
@@ -305,7 +264,7 @@ export default function DividendPlanner() {
           ) : null}
         </div>
 
-        {/* Goal (wider) */}
+        {/* Goal */}
         <div className="lg:col-span-6">
           <label className="label">Goal</label>
           <div className="grid grid-cols-3 gap-2">
@@ -320,17 +279,17 @@ export default function DividendPlanner() {
           </div>
         </div>
 
-        {/* Dividend / share (annual) */}
-        <div className="lg:col-span-4">
+        {/* Dividend / share (annual) — smaller fixed width on lg+, full on mobile */}
+        <div className="lg:col-span-3">
           <label className="label">Dividend / share (annual)</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span>
+          <div className="relative lg:max-w-[260px]">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span>
             <input className="input w-full pl-6" value={dpsAnnual} onChange={e => setDpsAnnual(e.target.value)} />
           </div>
         </div>
 
-        {/* Button row — right aligned / same size as Add Holding */}
-        <div className="lg:col-span-12 flex justify-end">
+        {/* Button */}
+        <div className="lg:col-span-1 flex justify-end">
           <button type="submit" className="btn btn-primary h-10 px-4" disabled={!canSubmit}>
             <Plus className="w-4 h-4 mr-1" /> Add Goal
           </button>
