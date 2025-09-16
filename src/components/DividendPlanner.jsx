@@ -199,8 +199,8 @@ export default function DividendPlanner() {
   const [goalPeriod, setGoalPeriod]   = useState('month')
   const [dpsAnnual, setDpsAnnual]     = useState('')
 
-  const [refPrice, setRefPrice]       = useState(undefined)
-  const [refCcy, setRefCcy]           = useState('USD')
+  const [refPrice, setRefPrice] = useState(undefined)
+  const [refCcy, setRefCcy]     = useState('USD')
 
   const v_symbol = symbol.trim().toUpperCase()
   const v_target = parseNum(targetValue)
@@ -284,10 +284,10 @@ export default function DividendPlanner() {
         </p>
       </div>
 
-      {/* Inputs — single line on lg: 2 / 6 / 3, then a full-width button row */}
-      <form onSubmit={addGoal} className="card grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Symbol (2) */}
-        <div className="lg:col-span-2">
+      {/* Inputs — FLAT GRID: even spacing, no overlap */}
+      <form onSubmit={addGoal} className="card grid grid-cols-1 lg:grid-cols-5 gap-4 items-end">
+        {/* 1) Symbol */}
+        <div className="lg:col-span-1">
           <label className="label">Symbol</label>
           <input
             className="input w-full"
@@ -299,40 +299,46 @@ export default function DividendPlanner() {
           <datalist id="dripSymbols">
             {Array.from(new Set((holdings||[]).map(h => (h.symbol||'').toUpperCase()).filter(Boolean))).map(s => <option key={s} value={s} />)}
           </datalist>
-          {refPrice ? (
-            <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1">
-              Ref price: <span className="font-medium">{currency(refPrice)} {refCcy}</span>
-            </div>
-          ) : null}
         </div>
 
-        {/* Goal (6) */}
-        <div className="lg:col-span-6">
+        {/* 2) Goal type */}
+        <div className="lg:col-span-1">
           <label className="label">Goal</label>
-          <div className="grid grid-cols-3 gap-2">
-            <select className="input w-full" value={goalType} onChange={e => setGoalType(e.target.value)}>
-              <option value="shares">Shares</option>
-              <option value="income">Income ($)</option>
-            </select>
-            <input className="input w-full" value={targetValue} onChange={e => setTargetValue(e.target.value)} placeholder={goalType==='shares'?'1':'100'} />
-            <select className="input w-full min-w-[130px]" value={goalPeriod} onChange={e => setGoalPeriod(e.target.value)}>
-              {PERIODS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-            </select>
-          </div>
+          <select className="input w-full" value={goalType} onChange={e => setGoalType(e.target.value)}>
+            <option value="shares">Shares</option>
+            <option value="income">Income ($)</option>
+          </select>
         </div>
 
-        {/* Dividend / share (annual) (3) */}
-        <div className="lg:col-span-3">
-          <label className="label whitespace-nowrap">Dividend / share (annual)</label>
-          <div className="relative lg:max-w-[260px]">
+        {/* 3) Amount */}
+        <div className="lg:col-span-1">
+          <label className="label">Amount</label>
+          <input className="input w-full" value={targetValue} onChange={e => setTargetValue(e.target.value)} placeholder={goalType==='shares'?'1':'100'} />
+        </div>
+
+        {/* 4) Period */}
+        <div className="lg:col-span-1">
+          <label className="label">Period</label>
+          <select className="input w-full min-w-[140px]" value={goalPeriod} onChange={e => setGoalPeriod(e.target.value)}>
+            {PERIODS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+        </div>
+
+        {/* 5) Dividend / share */}
+        <div className="lg:col-span-1">
+          <label className="label">Dividend / share (annual)</label>
+          <div className="relative">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span>
             <input className="input w-full pl-6" value={dpsAnnual} onChange={e => setDpsAnnual(e.target.value)} />
           </div>
+          {(() => refPrice
+            ? <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1">Ref price: <span className="font-medium">{currency(refPrice)} {refCcy}</span></div>
+            : null)()}
         </div>
 
-        {/* Button row (full width, bottom-right) */}
-        <div className="lg:col-span-12 flex justify-end">
-          <button type="submit" className="btn btn-primary h-10 px-4" disabled={!canSubmit}>
+        {/* Button row (separate line, right-aligned) */}
+        <div className="lg:col-span-5 flex justify-end">
+          <button type="submit" className="btn btn-primary h-10 px-4" disabled={!(v_symbol && v_target > 0 && v_dps > 0)}>
             <Plus className="w-4 h-4 mr-1" /> Add Goal
           </button>
         </div>
@@ -341,7 +347,7 @@ export default function DividendPlanner() {
       {/* Goals */}
       {sortedGoals.length > 0 ? (
         <div className="grid grid-cols-1 gap-3">
-          {sortedGoals.map(g => (<GoalRow key={g.id} g={g} holdings={holdings} onDelete={removeGoal} />))}
+          {sortedGoals.map(g => (<GoalRow key={g.id} g={g} holdings={holdings} onDelete={(id)=>setData(prev=>({...prev, dividendGoals:(prev.dividendGoals||[]).filter(x=>x.id!==id)}))} />))}
         </div>
       ) : (
         <div className="card text-sm text-neutral-600 dark:text-neutral-300">
