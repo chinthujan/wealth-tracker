@@ -23,6 +23,14 @@ function formatDateLabel(d) {
 
 export default function NetWorth() {
   const { data, totals } = useStore()
+
+  const netClass =
+  totals.netWorth < 0
+    ? 'text-red-600'
+    : totals.netWorth > 0
+    ? 'text-green-600'
+    : 'text-neutral-900 dark:text-neutral-100'
+
   const [range, setRange] = useState('90') // '30' | '90' | '365' | 'all'
 
   // Build clean, per-day series from history; fall back to a single "today" point
@@ -140,12 +148,12 @@ export default function NetWorth() {
       </div>
 
       {/* Current snapshot callout (optional, not a duplicate of Overview cards) */}
-      <div className="card">
-        <div className="text-sm text-neutral-600 dark:text-neutral-300">
-          Current net worth:&nbsp;
-          <span className="font-semibold">{currency(totals.netWorth)}</span>
-        </div>
-      </div>
+     <div className="card">
+  <div className="text-sm text-neutral-600 dark:text-neutral-300">
+    Current net worth:&nbsp;
+    <span className={`font-semibold ${netClass}`}>{currency(totals.netWorth)}</span>
+  </div>
+</div>
     </section>
   )
 }

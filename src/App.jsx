@@ -138,15 +138,35 @@ function Insights() {
 
 function Overview() {
   const { totals } = useStore()
+  const netClass =
+    totals.netWorth < 0
+      ? 'text-red-600'
+      : totals.netWorth > 0
+      ? 'text-green-600'
+      : 'text-neutral-900 dark:text-neutral-100' // black in light, white in dark
+
   return (
     <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div className="card"><div className="text-xs text-neutral-500 dark:text-neutral-400">Assets</div><div className="mt-1 text-xl font-semibold">{currency(totals.assets)}</div></div>
-      <div className="card"><div className="text-xs text-neutral-500 dark:text-neutral-400">Liabilities</div><div className="mt-1 text-xl font-semibold">{currency(totals.liabilities)}</div></div>
-      <div className="card"><div className="text-xs text-neutral-500 dark:text-neutral-400">Net Worth</div><div className="mt-1 text-xl font-semibold">{currency(totals.netWorth)}</div></div>
-      <div className="card"><div className="text-xs text-neutral-500 dark:text-neutral-400">Investment Value</div><div className="mt-1 text-xl font-semibold">{currency(totals.investmentValue)}</div></div>
+      <div className="card">
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">Assets</div>
+        <div className="mt-1 text-xl font-semibold">{currency(totals.assets)}</div>
+      </div>
+      <div className="card">
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">Liabilities</div>
+        <div className="mt-1 text-xl font-semibold">{currency(totals.liabilities)}</div>
+      </div>
+      <div className="card">
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">Net Worth</div>
+        <div className={`mt-1 text-xl font-semibold ${netClass}`}>{currency(totals.netWorth)}</div>
+      </div>
+      <div className="card">
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">Investment Value</div>
+        <div className="mt-1 text-xl font-semibold">{currency(totals.investmentValue)}</div>
+      </div>
     </section>
   )
 }
+
 
 export default function App() {
   return (
