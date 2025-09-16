@@ -24,6 +24,7 @@ function deepPick(obj, keys) {
 async function fetchPrice_AV(symbol, apiKey) {
   const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`
   const res = await fetch(url); const j = await res.json()
+  if (j?.Note || j?.Information) throw new Error('AlphaVantage: rate limited or invalid API key')
   const raw = j?.['Global Quote']?.['05. price']; const px = raw != null ? Number(raw) : NaN
   if (!isFinite(px)) throw new Error('AlphaVantage: price not found')
   return px
@@ -31,6 +32,7 @@ async function fetchPrice_AV(symbol, apiKey) {
 async function fetchOverview_AV(symbol, apiKey) {
   const url = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`
   const res = await fetch(url); const j = await res.json()
+  if (j?.Note || j?.Information) throw new Error('AlphaVantage: rate limited or invalid API key')
   return {
     dpsAnnual: isFinite(Number(j?.DividendPerShare)) ? Number(j.DividendPerShare) : undefined,
     dividendYield: isFinite(Number(j?.DividendYield)) ? Number(j.DividendYield) : undefined, // decimal (0.03)
@@ -43,12 +45,14 @@ async function fetchOverview_AV(symbol, apiKey) {
 async function fetchPrice_FH(symbol, apiKey) {
   const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`
   const res = await fetch(url); const j = await res.json()
+  if (j?.error) throw new Error(String(j.error))
   const px = Number(j?.c); if (!isFinite(px) || px <= 0) throw new Error('Finnhub: price not found')
   return px
 }
 async function fetchMetric_FH(symbol, apiKey) {
   const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all&token=${apiKey}`
   const res = await fetch(url); const j = await res.json()
+  if (j?.error) throw new Error(String(j.error))
   return {
     dpsAnnual: deepPick(j, ['metric.dividendPerShareAnnual', 'metric.dividendPerShareTTM']),
     dividendYield: (() => {
@@ -61,6 +65,7 @@ async function fetchMetric_FH(symbol, apiKey) {
 async function fetchProfile_FH(symbol, apiKey) {
   const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`
   const res = await fetch(url); const j = await res.json()
+  if (j?.error) throw new Error(String(j.error))
   return { currency: (j?.currency || '').toUpperCase() || undefined }
 }
 
@@ -228,20 +233,22 @@ export default function Investments() {
   }
 
   const fetchAllPrices = async () => {
-    if (!holdings.length) return
+    if (!holdings.length) { setFetchNote('No holdings to update.'); return }
     if (!guardProviderKeys()) return
     setLoading(true); setFetchNote('Fetching latest prices & dividends…')
     try {
-      const results = await Promise.allSettled(holdings.map(async (h) => {
-        const out = { id: h.id }
-        try { out.price = await fetchPrice(h.symbol, provider, apiKey, host) } catch {}
+      let updatedCount = 0, failed = 0
+      const results = await Promise.allSettled(holdings.map(async (hh) => {
+        const s = (hh.symbol || '').toUpperCase().trim()
+        const out = { id: hh.id }
+        try { out.price = await fetchPrice(s, provider, apiKey, host); updatedCount++ } catch (e) { failed++; console.warn('Price fetch failed', s, e?.message) }
         try {
-          const m = await fetchMeta(h.symbol, provider, apiKey, host)
-          if (m?.dpsAnnual != null && isFinite(m.dpsAnnual)) out.dpsAnnual = Number(m.dpsAnnual)
+          const m = await fetchMeta(s, provider, apiKey, host)
+          if (m?.dpsAnnual != null && isFinite(m.dpsAnnual)) { out.dpsAnnual = Number(m.dpsAnnual); updatedCount++ }
           if (m?.dividendYield != null && isFinite(m.dividendYield)) out.dividendYield = Number(m.dividendYield)
           if (m?.payoutFreq) out.payoutFreq = m.payoutFreq
           if (m?.currency) out.ccy = m.currency
-        } catch {}
+        } catch (e) { failed++; console.warn('Meta fetch failed', s, e?.message) }
         return out
       }))
       const updates = {}; for (const r of results) if (r.status === 'fulfilled') updates[r.value.id] = r.value
@@ -253,9 +260,12 @@ export default function Investments() {
         }),
         settings: { ...prev.settings, lastPriceSyncAt: new Date().toISOString() }
       }))
-      setFetchNote(`Updated ${holdings.length} holding${holdings.length === 1 ? '' : 's'} (price + dividends + currency).`)
+      if (updatedCount > 0) setFetchNote(`Updated ${updatedCount} field(s) across ${holdings.length} holding(s).`)
+      else setFetchNote('No updates received — check API key/provider or rate limits.')
+    } catch (e) {
+      console.error(e); setFetchNote(`Fetch failed: ${e?.message || 'Unknown error'}`)
     } finally {
-      setLoading(false); setTimeout(()=>setFetchNote(''), 3000)
+      setLoading(false); setTimeout(()=>setFetchNote(''), 5000)
     }
   }
 
@@ -406,7 +416,7 @@ export default function Investments() {
 
         {/* RIGHT */}
         <div className="lg:col-span-1 space-y-4">
-          {/* NEW: Monthly Passive Income panel */}
+          {/* Monthly Passive Income panel */}
           <div className="card">
             <div className="font-semibold mb-2">Monthly Passive Income (Dividends)</div>
             {monthlyIncomeByCcy.size === 0 ? (
@@ -423,18 +433,19 @@ export default function Investments() {
             <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">Based on current holdings and annual DPS.</div>
           </div>
 
-          <div className="card h-[340px]">
+          {/* Allocation — legend kept inside bounds */}
+          <div className="card h-[340px] overflow-hidden">
             <div className="font-semibold mb-2">Allocation</div>
             {allocation.rows.length === 0 ? (
               <div className="text-sm text-neutral-500 dark:text-neutral-400">No data yet</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
+                <PieChart margin={{ top: 8, right: 8, bottom: 28, left: 8 }}>
                   <Pie data={allocation.rows} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90}>
                     {allocation.rows.map((_, i) => (<Cell key={i} fill={colorForIndex(i)} />))}
                   </Pie>
                   <Tooltip formatter={(v, n) => [currency(v), n]} />
-                  <Legend />
+                  <Legend verticalAlign="bottom" height={24} />
                 </PieChart>
               </ResponsiveContainer>
             )}

@@ -3,7 +3,8 @@ import { useStore } from '../state/store'
 import { currency, parseNum } from '../lib/utils'
 import { Target, Plus, Trash2, Info } from 'lucide-react'
 
-/* --- provider helpers (dividends + currency + price) --- */
+/* ───────────────────────── Provider helpers ───────────────────────── */
+
 function deepPick(obj, keys) {
   for (const k of keys) {
     const parts = k.split('.'); let cur = obj
@@ -13,9 +14,12 @@ function deepPick(obj, keys) {
   }
   return undefined
 }
+
+/* AlphaVantage */
 async function fetchOverview_AV(symbol, apiKey) {
   const u = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`
   const r = await fetch(u); const j = await r.json()
+  if (j?.Note || j?.Information) throw new Error('AlphaVantage: rate limited or invalid key')
   return {
     dpsAnnual: isFinite(Number(j?.DividendPerShare)) ? Number(j.DividendPerShare) : undefined,
     currency: (j?.Currency || '').toUpperCase() || undefined,
@@ -24,12 +28,16 @@ async function fetchOverview_AV(symbol, apiKey) {
 async function fetchPrice_AV(symbol, apiKey) {
   const u = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`
   const r = await fetch(u); const j = await r.json()
+  if (j?.Note || j?.Information) throw new Error('AlphaVantage: rate limited or invalid key')
   const raw = j?.['Global Quote']?.['05. price']; const px = raw != null ? Number(raw) : NaN
   return isFinite(px) ? px : undefined
 }
+
+/* Finnhub */
 async function fetchMetric_FH(symbol, apiKey) {
   const u = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all&token=${apiKey}`
   const r = await fetch(u); const j = await r.json()
+  if (j?.error) throw new Error(String(j.error))
   return { dpsAnnual: deepPick(j, ['metric.dividendPerShareAnnual', 'metric.dividendPerShareTTM']) }
 }
 async function fetchPrice_FH(symbol, apiKey) {
@@ -42,6 +50,8 @@ async function fetchProfile_FH(symbol, apiKey) {
   const r = await fetch(u); const j = await r.json()
   return { currency: (j?.currency || '').toUpperCase() || undefined }
 }
+
+/* Yahoo via RapidAPI */
 async function fetchSummary_YR(symbol, apiKey, host) {
   const headers = { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': host }
   try {
@@ -69,7 +79,23 @@ async function fetchSummary_YR(symbol, apiKey, host) {
   return {}
 }
 
-/* --- math (whole shares) --- */
+/* Provider router */
+async function fetchPrice(symbol, provider, apiKey, host) {
+  if (provider === 'Finnhub') return fetchPrice_FH(symbol, apiKey)
+  if (provider === 'YahooRapidAPI') return (await fetchSummary_YR(symbol, apiKey, host))?.price
+  return fetchPrice_AV(symbol, apiKey)
+}
+async function fetchMeta(symbol, provider, apiKey, host) {
+  if (provider === 'Finnhub') {
+    const [m, p] = await Promise.allSettled([fetchMetric_FH(symbol, apiKey), fetchProfile_FH(symbol, apiKey)])
+    return { ...(m.status === 'fulfilled' ? m.value : {}), ...(p.status === 'fulfilled' ? p.value : {}) }
+  }
+  if (provider === 'YahooRapidAPI') return fetchSummary_YR(symbol, apiKey, host)
+  return fetchOverview_AV(symbol, apiKey)
+}
+
+/* ───────────────────────── Math (whole shares only) ───────────────────────── */
+
 const PERIODS = [
   { key: 'month',   label: 'Per Month',   gy: 12 },
   { key: 'quarter', label: 'Per Quarter', gy: 4  },
@@ -78,6 +104,7 @@ const PERIODS = [
 const gy = (period) => (PERIODS.find(p => p.key === period)?.gy ?? 12)
 const monthlyIncome = (shares, dpsAnnual) => (Number(shares) * Number(dpsAnnual || 0)) / 12
 
+/** Required total shares to hit the goal (whole shares). */
 function requiredSharesWhole({ goalType, targetValue, goalPeriod, price, dpsAnnual }) {
   const P   = Math.max(0, Number(price || 0))
   const dps = Math.max(0, Number(dpsAnnual || 0))
@@ -92,7 +119,8 @@ function requiredSharesWhole({ goalType, targetValue, goalPeriod, price, dpsAnnu
   }
 }
 
-/* --- row --- */
+/* ───────────────────────── Goal row ───────────────────────── */
+
 function GoalRow({ g, onDelete, holdings }) {
   const currentShares = (holdings || [])
     .filter(h => (h.symbol || '').toUpperCase() === (g.symbol || '').toUpperCase())
@@ -116,7 +144,9 @@ function GoalRow({ g, onDelete, holdings }) {
           <Target className="w-4 h-4" />
           <div className="font-semibold">{g.symbol}</div>
           <div className="text-xs text-neutral-500 dark:text-neutral-400">
-            Goal: <span className="font-medium">{g.goalType === 'shares' ? `${g.targetValue} / ${g.goalPeriod}` : `$${g.targetValue} / ${g.goalPeriod}`}</span>
+            Goal: <span className="font-medium">
+              {g.goalType === 'shares' ? `${g.targetValue} / ${g.goalPeriod}` : `$${g.targetValue} / ${g.goalPeriod}`}
+            </span>
           </div>
         </div>
         <button className="btn hover:text-red-600" onClick={() => onDelete(g.id)} title="Remove">
@@ -152,7 +182,8 @@ function GoalRow({ g, onDelete, holdings }) {
   )
 }
 
-/* --- main planner (single-line inputs, equal spacing, smaller final input) --- */
+/* ───────────────────────── Main Planner ───────────────────────── */
+
 export default function DividendPlanner() {
   const { data, setData } = useStore()
   const holdings = data?.investments || []
@@ -162,49 +193,55 @@ export default function DividendPlanner() {
   const apiKey   = data?.settings?.marketData?.apiKey || ''
   const host     = data?.settings?.marketData?.host || ''
 
-  const [symbol, setSymbol]         = useState('')
-  const [goalType, setGoalType]     = useState('shares')
-  const [targetValue, setTargetValue]= useState('1')
-  const [goalPeriod, setGoalPeriod] = useState('month')
-  const [dpsAnnual, setDpsAnnual]   = useState('')
+  const [symbol, setSymbol]           = useState('')
+  const [goalType, setGoalType]       = useState('shares')
+  const [targetValue, setTargetValue] = useState('1')
+  const [goalPeriod, setGoalPeriod]   = useState('month')
+  const [dpsAnnual, setDpsAnnual]     = useState('')
 
-  const [refPrice, setRefPrice]     = useState(undefined)
-  const [refCcy, setRefCcy]         = useState('USD')
+  const [refPrice, setRefPrice]       = useState(undefined)
+  const [refCcy, setRefCcy]           = useState('USD')
 
   const v_symbol = symbol.trim().toUpperCase()
   const v_target = parseNum(targetValue)
   const v_dps    = parseNum(dpsAnnual)
 
-  // Autofill DPS & price on symbol change
+  // Autofill DPS & price when symbol changes (prefer existing holding data)
   useEffect(() => {
     if (!v_symbol) return
-    const h = holdings.find(h => (h.symbol || '').toUpperCase() === v_symbol)
-    if (h) {
-      if (h.dpsAnnual) setDpsAnnual(String(h.dpsAnnual))
-      if (h.price)     setRefPrice(h.price)
-      setRefCcy(h.ccy || 'USD'); return
+    const local = holdings.find(h => (h.symbol || '').toUpperCase() === v_symbol)
+    if (local) {
+      if (local.dpsAnnual) setDpsAnnual(String(local.dpsAnnual))
+      if (local.price)     setRefPrice(local.price)
+      setRefCcy(local.ccy || 'USD')
+      return
     }
     ;(async () => {
       try {
         if (provider === 'AlphaVantage') {
           if (!apiKey) return
           const [ov, px] = await Promise.allSettled([fetchOverview_AV(v_symbol, apiKey), fetchPrice_AV(v_symbol, apiKey)])
-          if (ov.status === 'fulfilled') { if (ov.value?.dpsAnnual) setDpsAnnual(String(ov.value.dpsAnnual)); if (ov.value?.currency) setRefCcy(ov.value.currency) }
+          if (ov.status === 'fulfilled') {
+            if (ov.value?.dpsAnnual != null) setDpsAnnual(String(ov.value.dpsAnnual))
+            if (ov.value?.currency) setRefCcy(ov.value.currency)
+          }
           if (px.status === 'fulfilled' && px.value) setRefPrice(px.value)
         } else if (provider === 'Finnhub') {
           if (!apiKey) return
           const [mt, pr, pf] = await Promise.allSettled([fetchMetric_FH(v_symbol, apiKey), fetchPrice_FH(v_symbol, apiKey), fetchProfile_FH(v_symbol, apiKey)])
-          if (mt.status === 'fulfilled' && mt.value?.dpsAnnual) setDpsAnnual(String(mt.value.dpsAnnual))
+          if (mt.status === 'fulfilled' && mt.value?.dpsAnnual != null) setDpsAnnual(String(mt.value.dpsAnnual))
           if (pr.status === 'fulfilled' && pr.value) setRefPrice(pr.value)
           if (pf.status === 'fulfilled' && pf.value?.currency) setRefCcy(pf.value.currency)
         } else {
           if (!apiKey || !host) return
           const sm = await fetchSummary_YR(v_symbol, apiKey, host)
-          if (sm?.dpsAnnual) setDpsAnnual(String(sm.dpsAnnual))
-          if (sm?.price)     setRefPrice(sm.price)
-          if (sm?.currency)  setRefCcy(sm.currency)
+          if (sm?.dpsAnnual != null) setDpsAnnual(String(sm.dpsAnnual))
+          if (sm?.price) setRefPrice(sm.price)
+          if (sm?.currency) setRefCcy(sm.currency)
         }
-      } catch {}
+      } catch {
+        /* graceful: leave fields for manual entry */
+      }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v_symbol, holdings, provider, apiKey, host])
@@ -216,14 +253,19 @@ export default function DividendPlanner() {
     if (!canSubmit) return
     const newGoal = {
       id: Math.random().toString(36).slice(2) + Date.now().toString(36),
-      symbol: v_symbol, goalType, targetValue: v_target,
-      goalPeriod, dpsAnnual: v_dps, createdAt: new Date().toISOString()
+      symbol: v_symbol,
+      goalType,
+      targetValue: v_target,
+      goalPeriod,
+      dpsAnnual: v_dps,
+      createdAt: new Date().toISOString(),
     }
     setData(prev => ({ ...prev, dividendGoals: [...(prev.dividendGoals || []), newGoal] }))
     setTargetValue(goalType === 'shares' ? '1' : '')
   }
 
-  const removeGoal = (id) => setData(prev => ({ ...prev, dividendGoals: (prev.dividendGoals || []).filter(g => g.id !== id) }))
+  const removeGoal = (id) =>
+    setData(prev => ({ ...prev, dividendGoals: (prev.dividendGoals || []).filter(g => g.id !== id) }))
 
   const sortedGoals = useMemo(() => {
     return (goals || []).slice().sort((a, b) => {
@@ -242,9 +284,9 @@ export default function DividendPlanner() {
         </p>
       </div>
 
-      {/* Single line on lg+: 2 / 6 / 3 / 1 (button). Smaller last input; aligned labels; $ not overlapped */}
-      <form onSubmit={addGoal} className="card grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
-        {/* Symbol */}
+      {/* Inputs — single line on lg: 2 / 6 / 3, then a full-width button row */}
+      <form onSubmit={addGoal} className="card grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Symbol (2) */}
         <div className="lg:col-span-2">
           <label className="label">Symbol</label>
           <input
@@ -264,7 +306,7 @@ export default function DividendPlanner() {
           ) : null}
         </div>
 
-        {/* Goal */}
+        {/* Goal (6) */}
         <div className="lg:col-span-6">
           <label className="label">Goal</label>
           <div className="grid grid-cols-3 gap-2">
@@ -272,24 +314,24 @@ export default function DividendPlanner() {
               <option value="shares">Shares</option>
               <option value="income">Income ($)</option>
             </select>
-            <input className="input w-full" value={targetValue} onChange={e => setTargetValue(e.target.value)} placeholder={goalType === 'shares' ? '1' : '100'} />
+            <input className="input w-full" value={targetValue} onChange={e => setTargetValue(e.target.value)} placeholder={goalType==='shares'?'1':'100'} />
             <select className="input w-full min-w-[130px]" value={goalPeriod} onChange={e => setGoalPeriod(e.target.value)}>
               {PERIODS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
             </select>
           </div>
         </div>
 
-        {/* Dividend / share (annual) — smaller fixed width on lg+, full on mobile */}
+        {/* Dividend / share (annual) (3) */}
         <div className="lg:col-span-3">
-          <label className="label">Dividend / share (annual)</label>
+          <label className="label whitespace-nowrap">Dividend / share (annual)</label>
           <div className="relative lg:max-w-[260px]">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span>
             <input className="input w-full pl-6" value={dpsAnnual} onChange={e => setDpsAnnual(e.target.value)} />
           </div>
         </div>
 
-        {/* Button */}
-        <div className="lg:col-span-1 flex justify-end">
+        {/* Button row (full width, bottom-right) */}
+        <div className="lg:col-span-12 flex justify-end">
           <button type="submit" className="btn btn-primary h-10 px-4" disabled={!canSubmit}>
             <Plus className="w-4 h-4 mr-1" /> Add Goal
           </button>
