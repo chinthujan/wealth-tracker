@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../state/store'
 import { currency, parseNum } from '../lib/utils'
-import { Target, DollarSign, Plus, Trash2, Info } from 'lucide-react'
+import { Target, Plus, Trash2, Info } from 'lucide-react'
 
 /* --------- provider helpers (dividends + currency + price) --------- */
 function deepPick(obj, keys) {
@@ -76,7 +76,7 @@ const PERIODS = [
   { key: 'year', label: 'Per Year', gy: 1 },
 ]
 const gy = (period) => (PERIODS.find(p => p.key === period)?.gy ?? 12)
-const annualToMonthlyIncome = (shares, dpsAnnual) => (Number(shares) * Number(dpsAnnual || 0)) / 12
+const monthlyIncome = (shares, dpsAnnual) => (Number(shares) * Number(dpsAnnual || 0)) / 12
 
 function requiredSharesWhole({ goalType, targetValue, goalPeriod, price, dpsAnnual }) {
   const P = Math.max(0, Number(price || 0))
@@ -117,7 +117,9 @@ function GoalRow({ g, onDelete, holdings }) {
   const monthlyTarget = g.goalType === 'shares'
     ? (g.targetValue * price * (gy(g.goalPeriod) / 12))
     : (g.targetValue * (gy(g.goalPeriod) / 12))
-  const progress = monthlyTarget > 0 ? Math.min(1, annualToMonthlyIncome(currentShares, g.dpsAnnual) / monthlyTarget) : 0
+
+  const currentMonthlyDiv = monthlyIncome(currentShares, g.dpsAnnual)
+  const progress = monthlyTarget > 0 ? Math.min(1, currentMonthlyDiv / monthlyTarget) : 0
 
   return (
     <div className="rounded-xl border dark:border-white/10 p-4 flex flex-col gap-3">
@@ -161,14 +163,17 @@ function GoalRow({ g, onDelete, holdings }) {
         </div>
       </div>
 
-      <div>
-        <div className="flex items-center justify-between text-xs text-neutral-500">
-          <span>Progress</span>
-          <span>{Math.round(progress * 100)}%</span>
-        </div>
-        <div className="mt-1 h-3 w-full rounded-full bg-neutral-100 dark:bg-white/10 overflow-hidden ring-1 ring-neutral-200/80 dark:ring-white/10">
-          <div className="h-full bg-brand-600" style={{ width: `${Math.round(progress * 100)}%` }} />
-        </div>
+      <div className="flex items-center justify-between text-xs text-neutral-500">
+        <span>Progress</span>
+        <span>{Math.round(progress * 100)}%</span>
+      </div>
+      <div className="mt-1 h-3 w-full rounded-full bg-neutral-100 dark:bg-white/10 overflow-hidden ring-1 ring-neutral-200/80 dark:ring-white/10">
+        <div className="h-full bg-brand-600" style={{ width: `${Math.round(progress * 100)}%` }} />
+      </div>
+
+      <div className="mt-2 text-sm">
+        <span className="text-neutral-500 dark:text-neutral-400">Current monthly dividend: </span>
+        <span className="font-medium">{currency(currentMonthlyDiv)} {ccy}</span>
       </div>
 
       <div className="text-xs text-neutral-600 dark:text-neutral-300 flex items-center gap-2">
@@ -178,7 +183,7 @@ function GoalRow({ g, onDelete, holdings }) {
   )
 }
 
-/* --------- main planner (equal spacing + smaller symbol + no placeholder) --------- */
+/* --------- main planner (equal spacing + fixed $ + aligned label) --------- */
 export default function DividendPlanner() {
   const { data, setData } = useStore()
   const holdings = data?.investments || []
@@ -278,7 +283,7 @@ export default function DividendPlanner() {
         </p>
       </div>
 
-      {/* FORM — equal spacing; smaller symbol; no placeholder on last input */}
+      {/* FORM — equal spacing; smaller Symbol; fixed $ overlay; aligned label */}
       <form onSubmit={addGoal} className="card grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
         {/* Symbol (smaller) */}
         <div className="lg:col-span-2">
@@ -300,7 +305,7 @@ export default function DividendPlanner() {
           ) : null}
         </div>
 
-        {/* Goal (more space) */}
+        {/* Goal (wider) */}
         <div className="lg:col-span-6">
           <label className="label">Goal</label>
           <div className="grid grid-cols-3 gap-2">
@@ -318,16 +323,15 @@ export default function DividendPlanner() {
         {/* Dividend / share (annual) */}
         <div className="lg:col-span-4">
           <label className="label">Dividend / share (annual)</label>
-          <div className="flex items-center gap-2">
-            <DollarSign className="w-4 h-4 opacity-70" />
-            {/* removed placeholder/prompt here */}
-            <input className="input w-full" value={dpsAnnual} onChange={e => setDpsAnnual(e.target.value)} />
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span>
+            <input className="input w-full pl-6" value={dpsAnnual} onChange={e => setDpsAnnual(e.target.value)} />
           </div>
         </div>
 
-        {/* Button row — same size/placement as Add Holding */}
+        {/* Button row — right aligned / same size as Add Holding */}
         <div className="lg:col-span-12 flex justify-end">
-          <button type="submit" className="btn btn-primary h-10 px-4" disabled={!Boolean(v_symbol && v_target > 0 && v_dps > 0)}>
+          <button type="submit" className="btn btn-primary h-10 px-4" disabled={!canSubmit}>
             <Plus className="w-4 h-4 mr-1" /> Add Goal
           </button>
         </div>

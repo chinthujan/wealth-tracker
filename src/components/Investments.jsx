@@ -206,6 +206,20 @@ export default function Investments() {
   const totalValue = allocation.total
   const totalUnits = useMemo(() => holdings.reduce((a, h) => a + Number(h.units || 0), 0), [holdings])
 
+  // NEW: monthly passive income grouped by currency
+  const monthlyIncomeByCcy = useMemo(() => {
+    const m = new Map()
+    for (const h of holdings) {
+      const dps = Number(h.dpsAnnual || 0)
+      const sh = Number(h.units || 0)
+      const ccy = (h.ccy || 'USD')
+      const amt = (sh * dps) / 12
+      if (!isFinite(amt) || amt <= 0) continue
+      m.set(ccy, (m.get(ccy) || 0) + amt)
+    }
+    return m
+  }, [holdings])
+
   const guardProviderKeys = () => {
     if (provider === 'AlphaVantage' && !apiKey) { alert('AlphaVantage API key is missing (Settings → Market Data).'); return false }
     if (provider === 'Finnhub' && !apiKey) { alert('Finnhub API key is missing (Settings → Market Data).'); return false }
@@ -272,7 +286,7 @@ export default function Investments() {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* LEFT */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Add holding — buttons aligned bottom-right, no helper line */}
+          {/* Add holding */}
           <form onSubmit={add} className="card grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="label">Symbol</label>
@@ -392,6 +406,23 @@ export default function Investments() {
 
         {/* RIGHT */}
         <div className="lg:col-span-1 space-y-4">
+          {/* NEW: Monthly Passive Income panel */}
+          <div className="card">
+            <div className="font-semibold mb-2">Monthly Passive Income (Dividends)</div>
+            {monthlyIncomeByCcy.size === 0 ? (
+              <div className="text-sm text-neutral-500 dark:text-neutral-400">No dividend data yet</div>
+            ) : (
+              <div className="space-y-1">
+                {Array.from(monthlyIncomeByCcy.entries()).map(([ccy, amt]) => (
+                  <div key={ccy} className="text-2xl font-semibold">
+                    {currency(amt)} <span className="text-base font-medium">{ccy}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">Based on current holdings and annual DPS.</div>
+          </div>
+
           <div className="card h-[340px]">
             <div className="font-semibold mb-2">Allocation</div>
             {allocation.rows.length === 0 ? (
