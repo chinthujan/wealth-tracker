@@ -10,6 +10,7 @@ const defaultData = {
   debts: [], // {id, name, amount, apr, minPayment, targetDate, createdAt, paid, payments:[{id,date,amount,note}]}
   savings: [], // {id,name,target,current,apy,targetDate,createdAt,contributions:[{id,date,amount,note}]}
   investments: [], // {id,name,symbol,account,units,price,cost,totalCost,createdAt}
+  dividendGoals: [],
   assets: [], // custom assets {id,name,value,category}
   history: [], // {date, netWorth, assets, liabilities}
   achievements: [] // {id, date, type, text}
