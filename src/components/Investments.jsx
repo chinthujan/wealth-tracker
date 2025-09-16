@@ -2,9 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../state/store'
 import { currency, parseNum } from '../lib/utils'
 import DividendPlanner from './DividendPlanner'
-import {
-  ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend
-} from 'recharts'
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts'
 import { Plus, Trash2, RefreshCcw } from 'lucide-react'
 
 /* ---------------- Provider helpers (price + dividends + currency) ---------------- */
@@ -35,7 +33,7 @@ async function fetchOverview_AV(symbol, apiKey) {
   const res = await fetch(url); const j = await res.json()
   return {
     dpsAnnual: isFinite(Number(j?.DividendPerShare)) ? Number(j.DividendPerShare) : undefined,
-    dividendYield: isFinite(Number(j?.DividendYield)) ? Number(j.DividendYield) : undefined,
+    dividendYield: isFinite(Number(j?.DividendYield)) ? Number(j.DividendYield) : undefined, // decimal (0.03)
     payoutFreq: 4,
     currency: (j?.Currency || '').toUpperCase() || undefined,
   }
@@ -274,23 +272,41 @@ export default function Investments() {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* LEFT */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Add holding */}
-          <form onSubmit={add} className="card grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          {/* Add holding — buttons aligned bottom-right, no helper line */}
+          <form onSubmit={add} className="card grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="label">Symbol</label>
-              <input className="input w-full" value={symbol} onChange={e=>setSymbol(e.target.value.toUpperCase())} placeholder="KO" />
-              <p className="text-xs mt-1 text-neutral-500 dark:text-neutral-400">e.g., KO (Coca-Cola), ENB (Enbridge)</p>
+              <input
+                className="input w-full"
+                value={symbol}
+                onChange={e=>setSymbol(e.target.value.toUpperCase())}
+                placeholder="KO"
+              />
             </div>
             <div>
               <label className="label">Units</label>
-              <input className="input w-full" type="number" step="0.0001" min="0" value={units} onChange={e=>setUnits(e.target.value)} placeholder="10" />
+              <input
+                className="input w-full"
+                type="number" step="0.0001" min="0"
+                value={units}
+                onChange={e=>setUnits(e.target.value)}
+                placeholder="10"
+              />
             </div>
             <div>
               <label className="label">Price (optional)</label>
-              <input className="input w-full" type="number" step="0.01" min="0" value={price} onChange={e=>setPrice(e.target.value)} placeholder="0.00" />
+              <input
+                className="input w-full"
+                type="number" step="0.01" min="0"
+                value={price}
+                onChange={e=>setPrice(e.target.value)}
+                placeholder="0.00"
+              />
             </div>
-            <div className="sm:col-span-3">
-              <button type="submit" className="btn btn-primary"><Plus className="w-4 h-4" /> Add Holding</button>
+            <div className="sm:col-span-3 flex justify-end pt-1">
+              <button type="submit" className="btn btn-primary h-10 px-4">
+                <Plus className="w-4 h-4 mr-1" /> Add Holding
+              </button>
             </div>
           </form>
 
@@ -343,7 +359,6 @@ export default function Investments() {
                           />
                           <CcyBadge ccy={h.ccy} />
                         </div>
-                        {/* single display only; no duplicate below */}
                       </td>
                       <td className="py-2 pr-3 align-middle">{isFinite(value) ? currency(value) : '—'}</td>
                       <td className="py-2 pr-3 align-middle">
