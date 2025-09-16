@@ -1,28 +1,40 @@
-import React, { useEffect, useState } from 'react'
-import { Moon, Sun } from 'lucide-react'
+import React from 'react'
+import { Sun, Moon } from 'lucide-react'
+import { useStore } from '../state/store'
 
 export default function ThemeToggle() {
-  const [mode, setMode] = useState(() => localStorage.getItem('theme') || 'system')
+  const { data, setData } = useStore()
+  const current = data?.settings?.theme || 'system'
 
-  useEffect(() => {
-    const root = document.documentElement
-    if (mode === 'dark') {
-      root.classList.add('dark')
-    } else if (mode === 'light') {
-      root.classList.remove('dark')
-    } else {
-      // system
-      if (window.matchMedia('(prefers-color-scheme: dark)').matches) root.classList.add('dark')
-      else root.classList.remove('dark')
+  // Resolve 'system' to actual
+  const resolved =
+    current === 'system'
+      ? (typeof window !== 'undefined' &&
+         window.matchMedia &&
+         window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light')
+      : current
+
+  const isDark = resolved === 'dark'
+
+  const toggle = () => {
+    const next = isDark ? 'light' : 'dark'
+    setData(prev => ({ ...prev, settings: { ...prev.settings, theme: next } }))
+    // Ensure UI updates immediately
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('dark', next === 'dark')
     }
-    localStorage.setItem('theme', mode)
-  }, [mode])
+  }
 
   return (
-    <div className="flex items-center gap-1">
-      <button className={`btn px-2 ${mode==='light'?'btn-primary':''}`} onClick={() => setMode('light')} title="Light mode"><Sun className="w-4 h-4"/></button>
-      <button className={`btn px-2 ${mode==='system'?'btn-primary':''}`} onClick={() => setMode('system')} title="System"><span className="text-xs">A</span></button>
-      <button className={`btn px-2 ${mode==='dark'?'btn-primary':''}`} onClick={() => setMode('dark')} title="Dark mode"><Moon className="w-4 h-4"/></button>
-    </div>
+    <button
+      className="btn"
+      onClick={toggle}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+    >
+      {isDark ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+    </button>
   )
 }
