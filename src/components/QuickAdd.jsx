@@ -16,7 +16,11 @@ export default function QuickAdd({ open, onClose }) {
       {tab==='Debt' && <DebtForm onDone={onClose} />}
       {tab==='Savings' && <SavingsForm onDone={onClose} />}
       {tab==='Investment' && <InvestForm onDone={onClose} />}
-      <div className="mt-3 text-xs text-neutral-500">Tip: Press <kbd className="kbd">N</kbd> to open Quick Add anywhere.</div>
+
+      {/* v2: updated tip */}
+      <div className="mt-3 text-xs text-neutral-500">
+        Tip: Press <kbd className="kbd">\\</kbd> to open Quick Add anywhere.
+      </div>
     </Modal>
   )
 }

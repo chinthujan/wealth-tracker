@@ -1,24 +1,34 @@
 import React, { useMemo, useState, useEffect } from 'react'
-import * as Recurrence from './lib/recurrence.js'
 import Header from './components/Header'
 import DebtTracker from './components/DebtTracker'
 import SavingsTracker from './components/SavingsTracker'
 import Investments from './components/Investments'
-import NetWorth from './components/NetWorth'
 import Assets from './components/Assets'
+import NetWorth from './components/NetWorth'
 import Settings from './components/Settings'
-import { Provider, useStore } from './state/store.jsx'
+import { Provider, useStore } from './state/store'
 import { currency } from './lib/utils'
+import * as Recurrence from './lib/recurrence.js'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts'
 
 function Shell() {
-  const [tab, setTab] = useState('Debt')
+  // v2: default landing tab is Net Worth
+  const [tab, setTab] = useState('Net Worth')
   const { totals, applyRecurrences } = useStore()
-  const [qaHotkey, setQaHotkey] = useState(0)
 
+  // apply missed recurrences on load
   useEffect(() => { applyRecurrences?.() }, [])
+
+  // v2: change quick-add hotkey to "\" and ignore when typing
   useEffect(() => {
-    const onKey = (e) => { if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey) { window.dispatchEvent(new CustomEvent('open-quick-add')) } }
+    const onKey = (e) => {
+      const tag = document.activeElement?.tagName?.toLowerCase()
+      const typing = ['input', 'textarea', 'select'].includes(tag) || document.activeElement?.isContentEditable
+      if (typing) return
+      if (e.key === '\\' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        window.dispatchEvent(new CustomEvent('open-quick-add'))
+      }
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
@@ -27,14 +37,19 @@ function Shell() {
     <div className="min-h-screen text-neutral-900 dark:text-neutral-100">
       <Header tab={tab} setTab={setTab}/>
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        <Insights />
-        <Overview />
-        <Reminders />
+        {/* v2: Show cross-app overview ONLY on Net Worth */}
+        {tab === 'Net Worth' && (
+          <>
+            <Insights />
+            <Overview />
+            <Reminders />
+            <NetWorth />
+          </>
+        )}
         {tab === 'Debt' && <DebtTracker />}
         {tab === 'Savings' && <SavingsTracker />}
         {tab === 'Investments' && <Investments />}
         {tab === 'Assets' && <Assets />}
-        {tab === 'Net Worth' && <NetWorth />}
         {tab === 'Settings' && <Settings />}
         <div className="py-10" />
       </main>
@@ -42,19 +57,18 @@ function Shell() {
   )
 }
 
+/* --- v2: keep these but they now render only on Net Worth --- */
 function Reminders() {
   const { data } = useStore()
   const items = []
   const today = new Date()
   const next30 = new Date(); next30.setDate(next30.getDate()+30)
   const { nextDueFrom, toISODate } = Recurrence
-  // debts
   for (const d of data.debts) {
     const r = d.recurring; if (!r || !r.enabled) continue
     const due = nextDueFrom(r.startDate, r.freq, today)
     if (due && due <= next30) items.push({ type:'Debt', name:d.name, amount:r.amount, date: toISODate(due) })
   }
-  // savings
   for (const g of data.savings) {
     const r = g.recurring; if (!r || !r.enabled) continue
     const due = nextDueFrom(r.startDate, r.freq, today)
@@ -86,11 +100,10 @@ function Reminders() {
   )
 }
 
-
 function Insights() {
-  const { data, totals } = useStore()
+  const { data } = useStore()
   const highestAPR = [...data.debts].sort((a,b)=> (b.apr||0) - (a.apr||0))[0]
-  const nextDue = (()=>{
+  const nextDue = (()=> {
     let soon = null
     for (const d of data.debts) {
       const r = d.recurring; if (!r || !r.enabled) continue
@@ -123,17 +136,8 @@ function Insights() {
   )
 }
 
-
 function Overview() {
-  const { totals, applyRecurrences } = useStore()
-  const [qaHotkey, setQaHotkey] = useState(0)
-
-  useEffect(() => { applyRecurrences?.() }, [])
-  useEffect(() => {
-    const onKey = (e) => { if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey) { window.dispatchEvent(new CustomEvent('open-quick-add')) } }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  const { totals } = useStore()
   return (
     <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div className="card"><div className="text-xs text-neutral-500 dark:text-neutral-400">Assets</div><div className="mt-1 text-xl font-semibold">{currency(totals.assets)}</div></div>
