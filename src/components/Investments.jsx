@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../state/store'
 import { currency, parseNum } from '../lib/utils'
 import DividendPlanner from './DividendPlanner'
@@ -7,9 +7,9 @@ import {
 } from 'recharts'
 import { Plus, Trash2, RefreshCcw, DollarSign } from 'lucide-react'
 
-/* -----------------------------
-   Provider helpers (price + dividends)
------------------------------ */
+/* ---------------------------------------
+   Provider helpers (price + dividends + ccy)
+---------------------------------------- */
 function deepPick(obj, keys) {
   for (const k of keys) {
     const parts = k.split('.')
@@ -19,6 +19,7 @@ function deepPick(obj, keys) {
       else { cur = undefined; break }
     }
     if (typeof cur === 'number' && isFinite(cur)) return Number(cur)
+    if (typeof cur === 'string' && cur) return cur
   }
   return undefined
 }
@@ -32,14 +33,15 @@ async function fetchPrice_AV(symbol, apiKey) {
   if (!isFinite(px)) throw new Error('AlphaVantage: price not found')
   return px
 }
-async function fetchDividend_AV(symbol, apiKey) {
+async function fetchOverview_AV(symbol, apiKey) {
   const url = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`
   const res = await fetch(url); const j = await res.json()
-  // Overview returns DividendPerShare (TTM) & DividendYield
-  const dps = Number(j?.DividendPerShare)
-  const yld = Number(j?.DividendYield) // decimal (e.g., 0.034)
-  if (!isFinite(dps) && !isFinite(yld)) throw new Error('AlphaVantage: dividends not found')
-  return { dpsAnnual: isFinite(dps) ? dps : undefined, dividendYield: isFinite(yld) ? yld : undefined, payoutFreq: 4 }
+  return {
+    dpsAnnual: isFinite(Number(j?.DividendPerShare)) ? Number(j.DividendPerShare) : undefined,
+    dividendYield: isFinite(Number(j?.DividendYield)) ? Number(j.DividendYield) : undefined, // decimal
+    payoutFreq: 4,
+    currency: (j?.Currency || '').toUpperCase() || undefined,
+  }
 }
 
 /* Finnhub */
@@ -50,71 +52,79 @@ async function fetchPrice_FH(symbol, apiKey) {
   if (!isFinite(px) || px <= 0) throw new Error('Finnhub: price not found')
   return px
 }
-async function fetchDividend_FH(symbol, apiKey) {
+async function fetchMetric_FH(symbol, apiKey) {
   const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all&token=${apiKey}`
   const res = await fetch(url); const j = await res.json()
-  const dps = deepPick(j, ['metric.dividendPerShareAnnual', 'metric.dividendPerShareTTM'])
-  const yld = deepPick(j, ['metric.dividendYieldIndicatedAnnual', 'metric.dividendYieldTTM'])
-  if (dps == null && yld == null) throw new Error('Finnhub: dividends not found')
-  return { dpsAnnual: dps, dividendYield: yld != null ? yld / 100 : undefined, payoutFreq: 4 }
+  return {
+    dpsAnnual: deepPick(j, ['metric.dividendPerShareAnnual', 'metric.dividendPerShareTTM']),
+    dividendYield: (() => {
+      const y = deepPick(j, ['metric.dividendYieldIndicatedAnnual', 'metric.dividendYieldTTM'])
+      return y != null ? Number(y) / 100 : undefined
+    })(),
+    payoutFreq: 4,
+  }
+}
+async function fetchProfile_FH(symbol, apiKey) {
+  const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`
+  const res = await fetch(url); const j = await res.json()
+  return { currency: (j?.currency || '').toUpperCase() || undefined }
 }
 
 /* Yahoo via RapidAPI (supports multiple hosts) */
 async function fetchPrice_YR(symbol, apiKey, host) {
   const headers = { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': host }
-
-  // Try finance15 style
-  try {
-    const u1 = `https://${host}/api/yahoo/qu/quote/${encodeURIComponent(symbol)}`
-    const r1 = await fetch(u1, { headers }); if (r1.ok) {
-      const j1 = await r1.json()
-      const px1 = deepPick(j1, [
-        'price.regularMarketPrice.raw',
-        'regularMarketPrice',
-        'quoteResponse.result.0.regularMarketPrice',
-        'regularMarketPrice.raw',
-      ])
-      if (isFinite(px1)) return px1
-    }
-  } catch {}
-
-  // Fallback yh-finance summary
-  const u2 = `https://${host}/stock/v2/get-summary?symbol=${encodeURIComponent(symbol)}&region=US`
-  const r2 = await fetch(u2, { headers }); const j2 = await r2.json()
-  const px2 = deepPick(j2, [
-    'price.regularMarketPrice.raw',
-    'financialData.currentPrice.raw',
-    'price.preMarketPrice.raw',
-  ])
-  if (!isFinite(px2)) throw new Error('Yahoo: price not found')
-  return px2
-}
-async function fetchDividend_YR(symbol, apiKey, host) {
-  const headers = { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': host }
-
-  // Try yh-finance summary
+  // try yh-finance summary first
   try {
     const u = `https://${host}/stock/v2/get-summary?symbol=${encodeURIComponent(symbol)}&region=US`
     const r = await fetch(u, { headers }); if (r.ok) {
       const j = await r.json()
-      const dps = deepPick(j, ['summaryDetail.dividendRate.raw', 'defaultKeyStatistics.lastDividendValue.raw'])
-      const yld = deepPick(j, ['summaryDetail.dividendYield.raw'])
-      if (dps != null || yld != null) return { dpsAnnual: dps, dividendYield: yld, payoutFreq: 4 }
+      const px = deepPick(j, [
+        'price.regularMarketPrice.raw',
+        'financialData.currentPrice.raw',
+        'price.preMarketPrice.raw',
+      ])
+      if (isFinite(Number(px))) return Number(px)
     }
   } catch {}
-
-  // Try finance15 style
+  // fallback finance15
+  const u2 = `https://${host}/api/yahoo/qu/quote/${encodeURIComponent(symbol)}`
+  const r2 = await fetch(u2, { headers }); const j2 = await r2.json()
+  const px2 = deepPick(j2, [
+    'price.regularMarketPrice.raw',
+    'regularMarketPrice',
+    'quoteResponse.result.0.regularMarketPrice',
+    'regularMarketPrice.raw',
+  ])
+  if (!isFinite(Number(px2))) throw new Error('Yahoo: price not found')
+  return Number(px2)
+}
+async function fetchDivSummary_YR(symbol, apiKey, host) {
+  const headers = { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': host }
+  try {
+    const u = `https://${host}/stock/v2/get-summary?symbol=${encodeURIComponent(symbol)}&region=US`
+    const r = await fetch(u, { headers }); if (r.ok) {
+      const j = await r.json()
+      return {
+        dpsAnnual: deepPick(j, ['summaryDetail.dividendRate.raw', 'defaultKeyStatistics.lastDividendValue.raw']),
+        dividendYield: deepPick(j, ['summaryDetail.dividendYield.raw']),
+        payoutFreq: 4,
+        currency: (deepPick(j, ['price.currency', 'financialData.financialCurrency']) || '').toUpperCase() || undefined,
+      }
+    }
+  } catch {}
   try {
     const u = `https://${host}/api/yahoo/qu/quote/${encodeURIComponent(symbol)}`
     const r = await fetch(u, { headers }); if (r.ok) {
       const j = await r.json()
-      const dps = deepPick(j, ['summaryDetail.dividendRate.raw', 'dividendRate'])
-      const yld = deepPick(j, ['summaryDetail.dividendYield.raw', 'dividendYield'])
-      if (dps != null || yld != null) return { dpsAnnual: dps, dividendYield: yld, payoutFreq: 4 }
+      return {
+        dpsAnnual: deepPick(j, ['summaryDetail.dividendRate.raw', 'dividendRate']),
+        dividendYield: deepPick(j, ['summaryDetail.dividendYield.raw', 'dividendYield']),
+        payoutFreq: 4,
+        currency: (deepPick(j, ['price.currency']) || '').toUpperCase() || undefined,
+      }
     }
   } catch {}
-
-  throw new Error('Yahoo: dividends not found')
+  return {}
 }
 
 async function fetchPrice(symbol, provider, apiKey, host) {
@@ -122,29 +132,66 @@ async function fetchPrice(symbol, provider, apiKey, host) {
   if (provider === 'YahooRapidAPI') return fetchPrice_YR(symbol, apiKey, host)
   return fetchPrice_AV(symbol, apiKey)
 }
-async function fetchDividend(symbol, provider, apiKey, host) {
-  if (provider === 'Finnhub') return fetchDividend_FH(symbol, apiKey)
-  if (provider === 'YahooRapidAPI') return fetchDividend_YR(symbol, apiKey, host)
-  return fetchDividend_AV(symbol, apiKey)
+async function fetchMeta(symbol, provider, apiKey, host) {
+  if (provider === 'Finnhub') {
+    const [m, p] = await Promise.allSettled([fetchMetric_FH(symbol, apiKey), fetchProfile_FH(symbol, apiKey)])
+    return {
+      ...(m.status === 'fulfilled' ? m.value : {}),
+      ...(p.status === 'fulfilled' ? p.value : {}),
+    }
+  }
+  if (provider === 'YahooRapidAPI') return fetchDivSummary_YR(symbol, apiKey, host)
+  return fetchOverview_AV(symbol, apiKey)
 }
 
-/* -----------------------------
-   Color helpers for allocation
------------------------------ */
-function colorForIndex(i) {
-  const hue = (i * 63) % 360
-  return `hsl(${hue} 70% 45%)`
+/* ---------------------------------------
+   Helpers
+---------------------------------------- */
+function colorForIndex(i) { const hue = (i * 63) % 360; return `hsl(${hue} 70% 45%)` }
+
+function mergeDuplicateHoldings(list) {
+  const map = new Map()
+  for (const h of list) {
+    const sym = (h.symbol || '').toUpperCase()
+    const prev = map.get(sym)
+    if (!prev) {
+      map.set(sym, { ...h, symbol: sym })
+    } else {
+      map.set(sym, {
+        ...prev,
+        units: Number(prev.units || 0) + Number(h.units || 0),
+        // keep the newest known price / dps / yield / ccy if available
+        price: h.price ?? prev.price,
+        dpsAnnual: h.dpsAnnual ?? prev.dpsAnnual,
+        dividendYield: h.dividendYield ?? prev.dividendYield,
+        payoutFreq: h.payoutFreq ?? prev.payoutFreq,
+        ccy: (h.ccy || prev.ccy),
+        id: prev.id, // keep first id
+      })
+    }
+  }
+  return Array.from(map.values())
 }
 
-/* -----------------------------
-   Investments main component
------------------------------ */
+/* ---------------------------------------
+   Investments
+---------------------------------------- */
 export default function Investments() {
   const { data, setData } = useStore()
   const holdings = data.investments || []
   const provider = data?.settings?.marketData?.provider || 'AlphaVantage'
   const apiKey   = data?.settings?.marketData?.apiKey || ''
   const host     = data?.settings?.marketData?.host || ''
+
+  // normalize duplicates once on mount
+  useEffect(() => {
+    if (!holdings.length) return
+    const merged = mergeDuplicateHoldings(holdings)
+    const changed = holdings.length !== merged.length ||
+      holdings.some((h, i) => JSON.stringify(h) !== JSON.stringify(merged[i]))
+    if (changed) setData(prev => ({ ...prev, investments: merged }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Add form state
   const [symbol, setSymbol] = useState('')
@@ -160,13 +207,27 @@ export default function Investments() {
     const u = parseNum(units)
     const p = price === '' ? undefined : parseNum(price)
     if (!s || !isFinite(u) || u <= 0) { alert('Enter a symbol and a positive number of units.'); return }
-    setData(prev => ({
-      ...prev,
-      investments: [
-        ...(prev.investments || []),
-        { id: Math.random().toString(36).slice(2) + Date.now().toString(36), symbol: s, units: u, price: p }
-      ]
-    }))
+
+    setData(prev => {
+      const list = prev.investments || []
+      const idx = list.findIndex(h => (h.symbol || '').toUpperCase() === s)
+      if (idx >= 0) {
+        const updated = list.slice()
+        updated[idx] = {
+          ...updated[idx],
+          units: Number(updated[idx].units || 0) + u,
+          price: p ?? updated[idx].price, // keep last known if new is blank
+        }
+        return { ...prev, investments: mergeDuplicateHoldings(updated) }
+      }
+      return {
+        ...prev,
+        investments: mergeDuplicateHoldings([
+          ...list,
+          { id: Math.random().toString(36).slice(2) + Date.now().toString(36), symbol: s, units: u, price: p }
+        ])
+      }
+    })
     setSymbol(''); setUnits(''); setPrice('')
   }
 
@@ -176,7 +237,9 @@ export default function Investments() {
   const updateHolding = (id, fields) => {
     setData(prev => ({
       ...prev,
-      investments: (prev.investments || []).map(h => h.id === id ? { ...h, ...fields } : h)
+      investments: mergeDuplicateHoldings(
+        (prev.investments || []).map(h => h.id === id ? { ...h, ...fields } : h)
+      )
     }))
   }
 
@@ -210,10 +273,11 @@ export default function Investments() {
           const out = { id: h.id }
           try { out.price = await fetchPrice(h.symbol, provider, apiKey, host) } catch {}
           try {
-            const d = await fetchDividend(h.symbol, provider, apiKey, host)
-            if (d?.dpsAnnual != null && isFinite(d.dpsAnnual)) out.dpsAnnual = d.dpsAnnual
-            if (d?.dividendYield != null && isFinite(d.dividendYield)) out.dividendYield = d.dividendYield
-            if (d?.payoutFreq) out.payoutFreq = d.payoutFreq
+            const m = await fetchMeta(h.symbol, provider, apiKey, host)
+            if (m?.dpsAnnual != null && isFinite(m.dpsAnnual)) out.dpsAnnual = Number(m.dpsAnnual)
+            if (m?.dividendYield != null && isFinite(m.dividendYield)) out.dividendYield = Number(m.dividendYield)
+            if (m?.payoutFreq) out.payoutFreq = m.payoutFreq
+            if (m?.currency) out.ccy = m.currency
           } catch {}
           return out
         })
@@ -226,18 +290,23 @@ export default function Investments() {
         ...prev,
         investments: (prev.investments || []).map(h => {
           const u = updates[h.id]
-          return u ? { ...h, price: u.price ?? h.price, dpsAnnual: u.dpsAnnual ?? h.dpsAnnual, dividendYield: u.dividendYield ?? h.dividendYield, payoutFreq: u.payoutFreq ?? h.payoutFreq } : h
+          return u ? { ...h, price: u.price ?? h.price, dpsAnnual: u.dpsAnnual ?? h.dpsAnnual, dividendYield: u.dividendYield ?? h.dividendYield, payoutFreq: u.payoutFreq ?? h.payoutFreq, ccy: u.ccy ?? h.ccy } : h
         }),
         settings: { ...prev.settings, lastPriceSyncAt: new Date().toISOString() }
       }))
 
-      const ok = holdings.length
-      setFetchNote(`Updated ${ok} holding${ok === 1 ? '' : 's'} (price + dividends when available).`)
+      setFetchNote(`Updated ${holdings.length} holding${holdings.length === 1 ? '' : 's'} (price + dividends + currency when available).`)
     } finally {
       setLoading(false)
       setTimeout(() => setFetchNote(''), 3500)
     }
   }
+
+  const ccyBadge = (ccy) => (
+    <span className="ml-2 inline-flex items-center rounded-lg px-2 py-0.5 text-[10px] font-medium bg-neutral-100 dark:bg-white/10 text-neutral-600 dark:text-neutral-300">
+      {ccy || '—'}
+    </span>
+  )
 
   return (
     <div className="space-y-4">
@@ -311,7 +380,7 @@ export default function Investments() {
                 ) : holdings.map(h => {
                   const value = Number(h.units || 0) * Number(h.price || 0)
                   return (
-                    <tr key={h.id} className="border-t border-neutral-200/80 dark:border-white/10">
+                    <tr key={h.id} className="border-t border-neutral-200/80 dark:border-white/10 align-middle">
                       <td className="py-2 pr-3 font-medium">{h.symbol}</td>
                       <td className="py-2 pr-3">
                         <input
@@ -322,15 +391,24 @@ export default function Investments() {
                         />
                       </td>
                       <td className="py-2 pr-3">
-                        <div className="flex items-center gap-2">
-                          <DollarSign className="w-4 h-4 opacity-60" />
-                          <input
-                            className="input w-28"
-                            type="number" step="0.01" min="0"
-                            value={h.price ?? ''}
-                            onChange={e => updateHolding(h.id, { price: e.target.value === '' ? undefined : parseNum(e.target.value) })}
-                          />
+                        <div className="flex items-center">
+                          <div className="flex items-center gap-2">
+                            <DollarSign className="w-4 h-4 opacity-60" />
+                            <input
+                              className="input w-28"
+                              type="number" step="0.01" min="0"
+                              value={h.price ?? ''}
+                              onChange={e => updateHolding(h.id, { price: e.target.value === '' ? undefined : parseNum(e.target.value) })}
+                            />
+                          </div>
+                          {ccyBadge(h.ccy)}
                         </div>
+                        {/* price display below for clarity: $xx.xx USD/CAD */}
+                        {isFinite(Number(h.price)) && (
+                          <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1">
+                            {currency(h.price)} {h.ccy ? h.ccy : ''}
+                          </div>
+                        )}
                       </td>
                       <td className="py-2 pr-3">{isFinite(value) ? currency(value) : '—'}</td>
                       <td className="py-2 pr-3">
@@ -390,7 +468,7 @@ export default function Investments() {
               <div>Last sync: {new Date(data.settings.lastPriceSyncAt).toLocaleString()}</div>
             )}
             <div className="mt-2">
-              Tip: Set keys in <span className="font-semibold">Settings → Market Data</span>. “Fetch Prices + Dividends” fills DPS automatically.
+              Tip: Set keys in <span className="font-semibold">Settings → Market Data</span>. “Fetch Prices + Dividends” fills DPS & currency.
             </div>
           </div>
         </div>
