@@ -5,11 +5,9 @@ import DividendPlanner from './DividendPlanner'
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend
 } from 'recharts'
-import { Plus, Trash2, RefreshCcw, DollarSign } from 'lucide-react'
+import { Plus, Trash2, RefreshCcw } from 'lucide-react'
 
-/* ---------------------------------------
-   Provider helpers (price + dividends + ccy)
----------------------------------------- */
+/* ---------------- Provider helpers (price + dividends + currency) ---------------- */
 function deepPick(obj, keys) {
   for (const k of keys) {
     const parts = k.split('.')
@@ -28,8 +26,7 @@ function deepPick(obj, keys) {
 async function fetchPrice_AV(symbol, apiKey) {
   const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`
   const res = await fetch(url); const j = await res.json()
-  const raw = j?.['Global Quote']?.['05. price']
-  const px = raw != null ? Number(raw) : NaN
+  const raw = j?.['Global Quote']?.['05. price']; const px = raw != null ? Number(raw) : NaN
   if (!isFinite(px)) throw new Error('AlphaVantage: price not found')
   return px
 }
@@ -38,7 +35,7 @@ async function fetchOverview_AV(symbol, apiKey) {
   const res = await fetch(url); const j = await res.json()
   return {
     dpsAnnual: isFinite(Number(j?.DividendPerShare)) ? Number(j.DividendPerShare) : undefined,
-    dividendYield: isFinite(Number(j?.DividendYield)) ? Number(j.DividendYield) : undefined, // decimal
+    dividendYield: isFinite(Number(j?.DividendYield)) ? Number(j.DividendYield) : undefined,
     payoutFreq: 4,
     currency: (j?.Currency || '').toUpperCase() || undefined,
   }
@@ -48,8 +45,7 @@ async function fetchOverview_AV(symbol, apiKey) {
 async function fetchPrice_FH(symbol, apiKey) {
   const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`
   const res = await fetch(url); const j = await res.json()
-  const px = Number(j?.c)
-  if (!isFinite(px) || px <= 0) throw new Error('Finnhub: price not found')
+  const px = Number(j?.c); if (!isFinite(px) || px <= 0) throw new Error('Finnhub: price not found')
   return px
 }
 async function fetchMetric_FH(symbol, apiKey) {
@@ -70,31 +66,20 @@ async function fetchProfile_FH(symbol, apiKey) {
   return { currency: (j?.currency || '').toUpperCase() || undefined }
 }
 
-/* Yahoo via RapidAPI (supports multiple hosts) */
+/* Yahoo via RapidAPI */
 async function fetchPrice_YR(symbol, apiKey, host) {
   const headers = { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': host }
-  // try yh-finance summary first
   try {
     const u = `https://${host}/stock/v2/get-summary?symbol=${encodeURIComponent(symbol)}&region=US`
     const r = await fetch(u, { headers }); if (r.ok) {
       const j = await r.json()
-      const px = deepPick(j, [
-        'price.regularMarketPrice.raw',
-        'financialData.currentPrice.raw',
-        'price.preMarketPrice.raw',
-      ])
+      const px = deepPick(j, ['price.regularMarketPrice.raw', 'financialData.currentPrice.raw', 'price.preMarketPrice.raw'])
       if (isFinite(Number(px))) return Number(px)
     }
   } catch {}
-  // fallback finance15
   const u2 = `https://${host}/api/yahoo/qu/quote/${encodeURIComponent(symbol)}`
   const r2 = await fetch(u2, { headers }); const j2 = await r2.json()
-  const px2 = deepPick(j2, [
-    'price.regularMarketPrice.raw',
-    'regularMarketPrice',
-    'quoteResponse.result.0.regularMarketPrice',
-    'regularMarketPrice.raw',
-  ])
+  const px2 = deepPick(j2, ['price.regularMarketPrice.raw', 'regularMarketPrice', 'quoteResponse.result.0.regularMarketPrice', 'regularMarketPrice.raw'])
   if (!isFinite(Number(px2))) throw new Error('Yahoo: price not found')
   return Number(px2)
 }
@@ -135,47 +120,35 @@ async function fetchPrice(symbol, provider, apiKey, host) {
 async function fetchMeta(symbol, provider, apiKey, host) {
   if (provider === 'Finnhub') {
     const [m, p] = await Promise.allSettled([fetchMetric_FH(symbol, apiKey), fetchProfile_FH(symbol, apiKey)])
-    return {
-      ...(m.status === 'fulfilled' ? m.value : {}),
-      ...(p.status === 'fulfilled' ? p.value : {}),
-    }
+    return { ...(m.status === 'fulfilled' ? m.value : {}), ...(p.status === 'fulfilled' ? p.value : {}) }
   }
   if (provider === 'YahooRapidAPI') return fetchDivSummary_YR(symbol, apiKey, host)
   return fetchOverview_AV(symbol, apiKey)
 }
 
-/* ---------------------------------------
-   Helpers
----------------------------------------- */
+/* ---------------- Helpers ---------------- */
 function colorForIndex(i) { const hue = (i * 63) % 360; return `hsl(${hue} 70% 45%)` }
-
 function mergeDuplicateHoldings(list) {
   const map = new Map()
   for (const h of list) {
     const sym = (h.symbol || '').toUpperCase()
     const prev = map.get(sym)
-    if (!prev) {
-      map.set(sym, { ...h, symbol: sym })
-    } else {
-      map.set(sym, {
-        ...prev,
-        units: Number(prev.units || 0) + Number(h.units || 0),
-        // keep the newest known price / dps / yield / ccy if available
-        price: h.price ?? prev.price,
-        dpsAnnual: h.dpsAnnual ?? prev.dpsAnnual,
-        dividendYield: h.dividendYield ?? prev.dividendYield,
-        payoutFreq: h.payoutFreq ?? prev.payoutFreq,
-        ccy: (h.ccy || prev.ccy),
-        id: prev.id, // keep first id
-      })
-    }
+    if (!prev) map.set(sym, { ...h, symbol: sym })
+    else map.set(sym, {
+      ...prev,
+      units: Number(prev.units || 0) + Number(h.units || 0),
+      price: h.price ?? prev.price,
+      dpsAnnual: h.dpsAnnual ?? prev.dpsAnnual,
+      dividendYield: h.dividendYield ?? prev.dividendYield,
+      payoutFreq: h.payoutFreq ?? prev.payoutFreq,
+      ccy: (h.ccy || prev.ccy),
+      id: prev.id,
+    })
   }
   return Array.from(map.values())
 }
 
-/* ---------------------------------------
-   Investments
----------------------------------------- */
+/* ---------------- Investments ---------------- */
 export default function Investments() {
   const { data, setData } = useStore()
   const holdings = data.investments || []
@@ -183,7 +156,7 @@ export default function Investments() {
   const apiKey   = data?.settings?.marketData?.apiKey || ''
   const host     = data?.settings?.marketData?.host || ''
 
-  // normalize duplicates once on mount
+  // normalize duplicates once
   useEffect(() => {
     if (!holdings.length) return
     const merged = mergeDuplicateHoldings(holdings)
@@ -202,52 +175,32 @@ export default function Investments() {
   const [fetchNote, setFetchNote] = useState('')
 
   const add = (e) => {
-    if (e?.preventDefault) e.preventDefault()
+    e?.preventDefault?.()
     const s = symbol.trim().toUpperCase()
     const u = parseNum(units)
     const p = price === '' ? undefined : parseNum(price)
     if (!s || !isFinite(u) || u <= 0) { alert('Enter a symbol and a positive number of units.'); return }
-
     setData(prev => {
       const list = prev.investments || []
       const idx = list.findIndex(h => (h.symbol || '').toUpperCase() === s)
       if (idx >= 0) {
         const updated = list.slice()
-        updated[idx] = {
-          ...updated[idx],
-          units: Number(updated[idx].units || 0) + u,
-          price: p ?? updated[idx].price, // keep last known if new is blank
-        }
+        updated[idx] = { ...updated[idx], units: Number(updated[idx].units || 0) + u, price: p ?? updated[idx].price }
         return { ...prev, investments: mergeDuplicateHoldings(updated) }
       }
-      return {
-        ...prev,
-        investments: mergeDuplicateHoldings([
-          ...list,
-          { id: Math.random().toString(36).slice(2) + Date.now().toString(36), symbol: s, units: u, price: p }
-        ])
-      }
+      return { ...prev, investments: mergeDuplicateHoldings([...list, { id: Math.random().toString(36).slice(2)+Date.now().toString(36), symbol: s, units: u, price: p }]) }
     })
     setSymbol(''); setUnits(''); setPrice('')
   }
 
-  const remove = (id) => {
+  const remove = (id) =>
     setData(prev => ({ ...prev, investments: (prev.investments || []).filter(h => h.id !== id) }))
-  }
-  const updateHolding = (id, fields) => {
-    setData(prev => ({
-      ...prev,
-      investments: mergeDuplicateHoldings(
-        (prev.investments || []).map(h => h.id === id ? { ...h, ...fields } : h)
-      )
-    }))
-  }
+
+  const updateHolding = (id, fields) =>
+    setData(prev => ({ ...prev, investments: mergeDuplicateHoldings((prev.investments || []).map(h => h.id === id ? { ...h, ...fields } : h)) }))
 
   const allocation = useMemo(() => {
-    const rows = holdings.map((h) => {
-      const value = Number(h.units || 0) * Number(h.price || 0)
-      return { name: h.symbol || '—', value }
-    })
+    const rows = holdings.map(h => ({ name: h.symbol || '—', value: Number(h.units || 0) * Number(h.price || 0) }))
     const total = rows.reduce((a, r) => a + r.value, 0)
     return { rows, total }
   }, [holdings])
@@ -265,27 +218,21 @@ export default function Investments() {
   const fetchAllPrices = async () => {
     if (!holdings.length) return
     if (!guardProviderKeys()) return
-
     setLoading(true); setFetchNote('Fetching latest prices & dividends…')
     try {
-      const results = await Promise.allSettled(
-        holdings.map(async (h) => {
-          const out = { id: h.id }
-          try { out.price = await fetchPrice(h.symbol, provider, apiKey, host) } catch {}
-          try {
-            const m = await fetchMeta(h.symbol, provider, apiKey, host)
-            if (m?.dpsAnnual != null && isFinite(m.dpsAnnual)) out.dpsAnnual = Number(m.dpsAnnual)
-            if (m?.dividendYield != null && isFinite(m.dividendYield)) out.dividendYield = Number(m.dividendYield)
-            if (m?.payoutFreq) out.payoutFreq = m.payoutFreq
-            if (m?.currency) out.ccy = m.currency
-          } catch {}
-          return out
-        })
-      )
-
-      const updates = {}
-      for (const r of results) if (r.status === 'fulfilled') updates[r.value.id] = r.value
-
+      const results = await Promise.allSettled(holdings.map(async (h) => {
+        const out = { id: h.id }
+        try { out.price = await fetchPrice(h.symbol, provider, apiKey, host) } catch {}
+        try {
+          const m = await fetchMeta(h.symbol, provider, apiKey, host)
+          if (m?.dpsAnnual != null && isFinite(m.dpsAnnual)) out.dpsAnnual = Number(m.dpsAnnual)
+          if (m?.dividendYield != null && isFinite(m.dividendYield)) out.dividendYield = Number(m.dividendYield)
+          if (m?.payoutFreq) out.payoutFreq = m.payoutFreq
+          if (m?.currency) out.ccy = m.currency
+        } catch {}
+        return out
+      }))
+      const updates = {}; for (const r of results) if (r.status === 'fulfilled') updates[r.value.id] = r.value
       setData(prev => ({
         ...prev,
         investments: (prev.investments || []).map(h => {
@@ -294,16 +241,14 @@ export default function Investments() {
         }),
         settings: { ...prev.settings, lastPriceSyncAt: new Date().toISOString() }
       }))
-
-      setFetchNote(`Updated ${holdings.length} holding${holdings.length === 1 ? '' : 's'} (price + dividends + currency when available).`)
+      setFetchNote(`Updated ${holdings.length} holding${holdings.length === 1 ? '' : 's'} (price + dividends + currency).`)
     } finally {
-      setLoading(false)
-      setTimeout(() => setFetchNote(''), 3500)
+      setLoading(false); setTimeout(()=>setFetchNote(''), 3000)
     }
   }
 
-  const ccyBadge = (ccy) => (
-    <span className="ml-2 inline-flex items-center rounded-lg px-2 py-0.5 text-[10px] font-medium bg-neutral-100 dark:bg-white/10 text-neutral-600 dark:text-neutral-300">
+  const CcyBadge = ({ ccy }) => (
+    <span className="inline-flex items-center rounded-md border border-neutral-200/80 dark:border-white/10 px-2 py-0.5 text-[10px] font-medium text-neutral-600 dark:text-neutral-300">
       {ccy || '—'}
     </span>
   )
@@ -315,9 +260,7 @@ export default function Investments() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="font-semibold text-lg">Investments</h2>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              Track positions, auto-fill dividends, and plan DRIP goals.
-            </p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">Track positions, auto-fill dividends, and plan DRIP goals.</p>
           </div>
           <div className="text-right">
             <div className="text-xs text-neutral-500 dark:text-neutral-400">Total Value</div>
@@ -327,9 +270,9 @@ export default function Investments() {
         </div>
       </div>
 
-      {/* Two-column layout: wide left, sidebar right */}
+      {/* Two-column layout */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* LEFT / WIDE column */}
+        {/* LEFT */}
         <div className="lg:col-span-2 space-y-4">
           {/* Add holding */}
           <form onSubmit={add} className="card grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
@@ -380,40 +323,32 @@ export default function Investments() {
                 ) : holdings.map(h => {
                   const value = Number(h.units || 0) * Number(h.price || 0)
                   return (
-                    <tr key={h.id} className="border-t border-neutral-200/80 dark:border-white/10 align-middle">
-                      <td className="py-2 pr-3 font-medium">{h.symbol}</td>
-                      <td className="py-2 pr-3">
+                    <tr key={h.id} className="border-t border-neutral-200/80 dark:border-white/10">
+                      <td className="py-2 pr-3 font-medium align-middle">{h.symbol}</td>
+                      <td className="py-2 pr-3 align-middle">
                         <input
-                          className="input w-28"
+                          className="input w-28 text-right"
                           type="number" step="0.0001" min="0"
                           value={h.units}
                           onChange={e => updateHolding(h.id, { units: parseNum(e.target.value) })}
                         />
                       </td>
-                      <td className="py-2 pr-3">
-                        <div className="flex items-center">
-                          <div className="flex items-center gap-2">
-                            <DollarSign className="w-4 h-4 opacity-60" />
-                            <input
-                              className="input w-28"
-                              type="number" step="0.01" min="0"
-                              value={h.price ?? ''}
-                              onChange={e => updateHolding(h.id, { price: e.target.value === '' ? undefined : parseNum(e.target.value) })}
-                            />
-                          </div>
-                          {ccyBadge(h.ccy)}
+                      <td className="py-2 pr-3 align-middle">
+                        <div className="flex items-center gap-2">
+                          <input
+                            className="input w-32 text-right"
+                            type="number" step="0.01" min="0"
+                            value={h.price ?? ''}
+                            onChange={e => updateHolding(h.id, { price: e.target.value === '' ? undefined : parseNum(e.target.value) })}
+                          />
+                          <CcyBadge ccy={h.ccy} />
                         </div>
-                        {/* price display below for clarity: $xx.xx USD/CAD */}
-                        {isFinite(Number(h.price)) && (
-                          <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1">
-                            {currency(h.price)} {h.ccy ? h.ccy : ''}
-                          </div>
-                        )}
+                        {/* single display only; no duplicate below */}
                       </td>
-                      <td className="py-2 pr-3">{isFinite(value) ? currency(value) : '—'}</td>
-                      <td className="py-2 pr-3">
+                      <td className="py-2 pr-3 align-middle">{isFinite(value) ? currency(value) : '—'}</td>
+                      <td className="py-2 pr-3 align-middle">
                         <input
-                          className="input w-28"
+                          className="input w-28 text-right"
                           type="number" step="0.0001" min="0"
                           value={h.dpsAnnual ?? ''}
                           onChange={e => updateHolding(h.id, { dpsAnnual: e.target.value === '' ? undefined : parseNum(e.target.value) })}
@@ -421,10 +356,10 @@ export default function Investments() {
                           title="Annual dividend per share"
                         />
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="py-2 pr-3 align-middle">
                         {h.dividendYield != null ? `${(Number(h.dividendYield) * 100).toFixed(2)}%` : '—'}
                       </td>
-                      <td className="py-2 pr-3 text-right">
+                      <td className="py-2 pr-3 text-right align-middle">
                         <button className="btn hover:text-red-600" onClick={() => remove(h.id)} title="Remove">
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -436,11 +371,11 @@ export default function Investments() {
             </table>
           </div>
 
-          {/* Dividend DRIP Planner in the wide column */}
+          {/* DRIP Planner */}
           <DividendPlanner />
         </div>
 
-        {/* RIGHT / SIDEBAR */}
+        {/* RIGHT */}
         <div className="lg:col-span-1 space-y-4">
           <div className="card h-[340px]">
             <div className="font-semibold mb-2">Allocation</div>
@@ -450,9 +385,7 @@ export default function Investments() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={allocation.rows} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90}>
-                    {allocation.rows.map((_, i) => (
-                      <Cell key={i} fill={colorForIndex(i)} />
-                    ))}
+                    {allocation.rows.map((_, i) => (<Cell key={i} fill={colorForIndex(i)} />))}
                   </Pie>
                   <Tooltip formatter={(v, n) => [currency(v), n]} />
                   <Legend />
@@ -464,12 +397,8 @@ export default function Investments() {
           <div className="card text-xs text-neutral-600 dark:text-neutral-300">
             <div className="font-medium mb-1">Market Data</div>
             <div>Provider: <span className="font-semibold">{provider}</span></div>
-            {data?.settings?.lastPriceSyncAt && (
-              <div>Last sync: {new Date(data.settings.lastPriceSyncAt).toLocaleString()}</div>
-            )}
-            <div className="mt-2">
-              Tip: Set keys in <span className="font-semibold">Settings → Market Data</span>. “Fetch Prices + Dividends” fills DPS & currency.
-            </div>
+            {data?.settings?.lastPriceSyncAt && (<div>Last sync: {new Date(data.settings.lastPriceSyncAt).toLocaleString()}</div>)}
+            <div className="mt-2">Tip: “Fetch Prices + Dividends” fills DPS & currency.</div>
           </div>
         </div>
       </section>
