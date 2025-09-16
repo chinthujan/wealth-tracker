@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Plus, X, GripVertical } from 'lucide-react'
+import DividendPlanner from './DividendPlanner'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -152,6 +153,7 @@ export default function Investments() {
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
+            <DividendPlanner />
           </div>
         </div>
       </section>
